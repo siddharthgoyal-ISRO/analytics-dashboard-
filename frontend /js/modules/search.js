@@ -26,6 +26,11 @@ export function buildUrl(type, value, page) {
         url += `&page=${page}`;
     }
 
+    // allow paging for session searches as well
+    if (page !== undefined && type === "session") {
+        url += `&page=${page}`;
+    }
+
     return url;
 }
 

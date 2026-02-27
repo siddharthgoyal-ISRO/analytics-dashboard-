@@ -37,7 +37,9 @@ def search_session():
     session_input = request.args.get("session_id", "").strip()
     if session_input == "":
         return jsonify({"error": "Session ID is required"}), 400
-
+    # paginate by *sessions*, not observations. We still return the
+    # observations for the selected sessions so the frontend can group
+    # and render timelines as before.
     page = parse_page(request.args.get("page"))
     per_page = 10
     offset = (page - 1) * per_page
@@ -56,12 +58,26 @@ def search_session():
 
     matched = filter_by_session(rows, session_input)
 
-    total = len(matched)
-    paginated = matched[offset:offset + per_page]
+    # group observations by session id
+    grouped = {}
+    for r in matched:
+        sid = r.get("SESS_ID") or "Unknown"
+        grouped.setdefault(sid, []).append(r)
+
+    session_ids = list(grouped.keys())
+    total_sessions = len(session_ids)
+
+    # pick the sessions for this page
+    selected = session_ids[offset:offset + per_page]
+
+    paginated = []
+    for sid in selected:
+        # keep the original order of observations within a session
+        paginated.extend(grouped.get(sid, []))
 
     return jsonify({
         "data": paginated,
-        "total": total,
+        "total": total_sessions,
         "page": page,
         "per_page": per_page
     })
@@ -72,6 +88,8 @@ def search_observations():
     pattern = request.args.get("pattern")
     config = request.args.get("config")
     imaging = request.args.get("imaging")
+    cmd_start = request.args.get("cmd_start")
+    cmd_end = request.args.get("cmd_end")
 
     page = parse_page(request.args.get("page"))
     per_page = 10
@@ -83,7 +101,14 @@ def search_observations():
     rows = [dict(r) for r in cursor.fetchall()]
     conn.close()
 
-    filtered = filter_observations(rows, pattern=pattern, config=config, imaging=imaging)
+    filtered = filter_observations(
+        rows,
+        pattern=pattern,
+        config=config,
+        imaging=imaging,
+        cmd_start=cmd_start,
+        cmd_end=cmd_end
+    )
 
     total = len(filtered)
     paginated = filtered[offset:offset + per_page]

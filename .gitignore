@@ -1,0 +1,19 @@
+# Database and generated files
+db.xml
+backend/cop_endpoints_db
+
+# Python cache
+backend/__pycache__/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store

@@ -24,16 +24,24 @@ class ObservationsApp extends HTMLElement {
             <option value="observation">Observation ID</option>
             <option value="session">Session ID</option>
             <option value="imaging">Imaging Time</option>
+            <option value="cmd_time">CMD SSAR Time</option>
             <option value="config">Config ID</option>
         </select>
 
         <div id="inputContainer" style="display:flex; gap:8px; align-items:center;">
             <input type="text" id="mainSearchInput" placeholder="Enter Observation ID">
             <div id="imagingInputs" style="display:none; gap:6px; align-items:center;">
-                <input type="text" id="imgYear" placeholder="Year (e.g. 2026)" size="6">
-                <input type="text" id="imgMonth" placeholder="Month (1-12)" size="3">
-                <input type="text" id="imgDay" placeholder="Day" size="3">
-                <input type="text" id="imgTime" placeholder="Time (HH:MM)" size="6">
+                <!-- use native date/time inputs for better UX; include seconds -->
+                <input type="date" id="imgDate">
+                <input type="time" id="imgTime" step="1">
+            </div>
+            <div id="cmdInputs" style="display:none; gap:6px; align-items:center;">
+                <label>Start:</label>
+                <input type="date" id="cmdStartDate">
+                <input type="time" id="cmdStartTime" step="1">
+                <label>End:</label>
+                <input type="date" id="cmdEndDate">
+                <input type="time" id="cmdEndTime" step="1">
             </div>
             <button id="searchBtn">Search</button>
         </div>
@@ -47,10 +55,13 @@ class ObservationsApp extends HTMLElement {
         this.filterType = this.querySelector("#filterType");
         this.mainInput = this.querySelector("#mainSearchInput");
         this.imagingInputs = this.querySelector("#imagingInputs");
-        this.imgYear = this.querySelector("#imgYear");
-        this.imgMonth = this.querySelector("#imgMonth");
-        this.imgDay = this.querySelector("#imgDay");
+        this.cmdInputs = this.querySelector("#cmdInputs");
+        this.imgDate = this.querySelector("#imgDate");
         this.imgTime = this.querySelector("#imgTime");
+        this.cmdStartDate = this.querySelector("#cmdStartDate");
+        this.cmdStartTime = this.querySelector("#cmdStartTime");
+        this.cmdEndDate = this.querySelector("#cmdEndDate");
+        this.cmdEndTime = this.querySelector("#cmdEndTime");
         this.searchBtn = this.querySelector("#searchBtn");
 
         this.searchBtn.addEventListener("click", () => this.performSearch());
@@ -60,20 +71,27 @@ class ObservationsApp extends HTMLElement {
     updatePlaceholder() {
         const value = this.filterType.value;
 
+        // hide everything initially
+        this.mainInput.style.display = "";
+        this.imagingInputs.style.display = "none";
+        this.cmdInputs.style.display = "none";
+
         if (value === "observation") {
-            this.mainInput.style.display = "";
-            this.imagingInputs.style.display = "none";
-            this.mainInput.placeholder = "Enter Observation ID (supports * ?)";
+            this.mainInput.placeholder = "Enter Observation ID (supports * ? )";
         } else if (value === "session") {
-            this.mainInput.style.display = "";
-            this.imagingInputs.style.display = "none";
             this.mainInput.placeholder = "Enter Session ID (supports * ?)";
         } else if (value === "imaging") {
             this.mainInput.style.display = "none";
             this.imagingInputs.style.display = "flex";
+            if (this.imgDate) this.imgDate.value = "";
+            if (this.imgTime) this.imgTime.value = "";
+        } else if (value === "cmd_time") {
+            this.mainInput.style.display = "none";
+            this.cmdInputs.style.display = "flex";
+            [this.cmdStartDate, this.cmdStartTime, this.cmdEndDate, this.cmdEndTime].forEach(i => {
+                if (i) i.value = "";
+            });
         } else if (value === "config") {
-            this.mainInput.style.display = "";
-            this.imagingInputs.style.display = "none";
             this.mainInput.placeholder = "Enter Config ID (e.g. 254)";
         }
     }
@@ -81,33 +99,42 @@ class ObservationsApp extends HTMLElement {
     async performSearch() {
         const type = this.filterType.value;
         let value = "";
+        // variables for cmd_time search
+        let sd, st, ed, et;
 
         if (type === "imaging") {
-            const y = this.imgYear.value.trim();
-            const m = this.imgMonth.value.trim();
-            const d = this.imgDay.value.trim();
+            const dateVal = this.imgDate.value.trim();
             const t = this.imgTime.value.trim();
-            if (!y && !m && !d && !t) {
-                showError(this.resultDiv, "Please enter at least one imaging field.");
+            if (!dateVal && !t) {
+                showError(this.resultDiv, "Please enter at least a date or time.");
                 return;
             }
-            if (y && m && d) {
-                const mm = parseInt(m, 10) - 1;
-                const dd = parseInt(d, 10);
-                const date = new Date(parseInt(y, 10), mm, dd);
-                const start = new Date(parseInt(y, 10), 0, 0);
-                const diff = date - start;
+            if (dateVal) {
+                const d = new Date(dateVal);
+                const y = d.getFullYear();
+                const start = new Date(y, 0, 0);
+                const diff = d - start;
                 const dayOfYear = Math.floor(diff / (1000 * 60 * 60 * 24));
                 const doy = String(dayOfYear).padStart(3, "0");
                 value = `${y}-${doy}` + (t ? `T${t}` : "");
             } else {
-                value = `${y}${y && m ? "-" : ""}${m}${(y||m) && d ? "-" : ""}${d}${t ? `T${t}` : ""}`;
+                value = t ? `T${t}` : "";
             }
+        } else if (type === "cmd_time") {
+            sd = this.cmdStartDate.value.trim();
+            st = this.cmdStartTime.value.trim();
+            ed = this.cmdEndDate.value.trim();
+            et = this.cmdEndTime.value.trim();
+            if (!sd && !st && !ed && !et) {
+                showError(this.resultDiv, "Please enter at least one start or end date/time.");
+                return;
+            }
+            // we build the query URL separately below
         } else {
             value = this.mainInput.value.trim();
         }
 
-        if (!value) {
+        if (type !== "cmd_time" && !value) {
             showError(this.resultDiv, "Please enter a value.");
             return;
         }
@@ -115,7 +142,15 @@ class ObservationsApp extends HTMLElement {
         showLoading(this.resultDiv);
 
         try {
-            const url = buildUrl(type, value);
+            let url;
+            if (type === "cmd_time") {
+                const params = [];
+                if (sd) params.push(`cmd_start=${encodeURIComponent(sd + (st ? `T${st}` : ""))}`);
+                if (ed) params.push(`cmd_end=${encodeURIComponent(ed + (et ? `T${et}` : ""))}`);
+                url = `/api/observation?${params.join("&")}`;
+            } else {
+                url = buildUrl(type, value);
+            }
             const result = await fetchJson(url);
 
             if (type === "session") {
@@ -126,11 +161,35 @@ class ObservationsApp extends HTMLElement {
                 renderMultipleSessionTimelines(
                     this.resultDiv,
                     result.data,
-                    item => renderObservationDetails(this.resultDiv, item)
+                    renderObservationDetails
                 );
+
+                // pagination controls for sessions
+                const totalPages = Math.ceil(result.total / result.per_page);
+                const paginationDiv = document.createElement("div");
+                paginationDiv.style.marginTop = "20px";
+
+                const prevBtn = document.createElement("button");
+                prevBtn.textContent = "Previous";
+                prevBtn.disabled = result.page <= 1;
+                prevBtn.onclick = () => this.fetchSession(result.page - 1);
+
+                const nextBtn = document.createElement("button");
+                nextBtn.textContent = "Next";
+                nextBtn.disabled = result.page >= totalPages;
+                nextBtn.onclick = () => this.fetchSession(result.page + 1);
+
+                const pageInfo = document.createElement("span");
+                pageInfo.textContent = ` Page ${result.page} of ${totalPages} `;
+                pageInfo.style.margin = "0 10px";
+
+                paginationDiv.appendChild(prevBtn);
+                paginationDiv.appendChild(pageInfo);
+                paginationDiv.appendChild(nextBtn);
+                this.resultDiv.appendChild(paginationDiv);
             } else {
                 if (!result.data || result.data.length === 0) {
-                    showError(this.resultDiv, "No observations found.");
+                    showError(this.resultDiv, type === "cmd_time" ? "No observations found for specified CMD time." : "No observations found.");
                     return;
                 }
                 renderResults(this.resultDiv, result, page => this.fetchObservation(page));
@@ -143,40 +202,96 @@ class ObservationsApp extends HTMLElement {
 
     async fetchObservation(page) {
         const type = this.filterType.value;
-        let value = "";
+        let url;
 
         if (type === "imaging") {
-            const y = this.imgYear.value.trim();
-            const m = this.imgMonth.value.trim();
-            const d = this.imgDay.value.trim();
+            const dateVal = this.imgDate.value.trim();
             const t = this.imgTime.value.trim();
-            if (y && m && d) {
-                const mm = parseInt(m, 10) - 1;
-                const dd = parseInt(d, 10);
-                const date = new Date(parseInt(y, 10), mm, dd);
-                const start = new Date(parseInt(y, 10), 0, 0);
-                const diff = date - start;
+            let value = "";
+            if (dateVal) {
+                const d = new Date(dateVal);
+                const y = d.getFullYear();
+                const start = new Date(y, 0, 0);
+                const diff = d - start;
                 const dayOfYear = Math.floor(diff / (1000 * 60 * 60 * 24));
                 const doy = String(dayOfYear).padStart(3, "0");
                 value = `${y}-${doy}` + (t ? `T${t}` : "");
             } else {
-                value = `${y}${y && m ? "-" : ""}${m}${(y||m) && d ? "-" : ""}${d}${t ? `T${t}` : ""}`;
+                value = t ? `T${t}` : "";
             }
+            url = buildUrl(type, value, page);
+        } else if (type === "cmd_time") {
+            const sd = this.cmdStartDate.value.trim();
+            const st = this.cmdStartTime.value.trim();
+            const ed = this.cmdEndDate.value.trim();
+            const et = this.cmdEndTime.value.trim();
+            const params = [];
+            if (sd) params.push(`cmd_start=${encodeURIComponent(sd + (st ? `T${st}` : ""))}`);
+            if (ed) params.push(`cmd_end=${encodeURIComponent(ed + (et ? `T${et}` : ""))}`);
+            params.push(`page=${page}`);
+            url = `/api/observation?${params.join("&")}`;
         } else {
-            value = this.mainInput.value.trim();
+            const value = this.mainInput.value.trim();
+            url = buildUrl(type, value, page);
         }
 
+        try {
+            showLoading(this.resultDiv);
+            const result = await fetchJson(url);
+            renderResults(this.resultDiv, result, p => this.fetchObservation(p));
+        } catch (error) {
+            console.error(error);
+            showError(this.resultDiv, "Something went wrong.");
+        }
+    }
+
+    async fetchSession(page) {
+        const value = this.mainInput.value.trim();
         if (!value) {
             showError(this.resultDiv, "Please enter a value.");
             return;
         }
 
-        showLoading(this.resultDiv);
-
+        const url = buildUrl("session", value, page);
         try {
-            const url = buildUrl(type, value, page);
+            showLoading(this.resultDiv);
             const result = await fetchJson(url);
-            renderResults(this.resultDiv, result, p => this.fetchObservation(p));
+
+            if (!result.data || result.data.length === 0) {
+                showError(this.resultDiv, "No session found.");
+                return;
+            }
+
+            renderMultipleSessionTimelines(
+                this.resultDiv,
+                result.data,
+                renderObservationDetails
+            );
+
+            // pagination controls (same as above)
+            const totalPages = Math.ceil(result.total / result.per_page);
+            const paginationDiv = document.createElement("div");
+            paginationDiv.style.marginTop = "20px";
+
+            const prevBtn = document.createElement("button");
+            prevBtn.textContent = "Previous";
+            prevBtn.disabled = result.page <= 1;
+            prevBtn.onclick = () => this.fetchSession(result.page - 1);
+
+            const nextBtn = document.createElement("button");
+            nextBtn.textContent = "Next";
+            nextBtn.disabled = result.page >= totalPages;
+            nextBtn.onclick = () => this.fetchSession(result.page + 1);
+
+            const pageInfo = document.createElement("span");
+            pageInfo.textContent = ` Page ${result.page} of ${totalPages} `;
+            pageInfo.style.margin = "0 10px";
+
+            paginationDiv.appendChild(prevBtn);
+            paginationDiv.appendChild(pageInfo);
+            paginationDiv.appendChild(nextBtn);
+            this.resultDiv.appendChild(paginationDiv);
+
         } catch (error) {
             console.error(error);
             showError(this.resultDiv, "Something went wrong.");

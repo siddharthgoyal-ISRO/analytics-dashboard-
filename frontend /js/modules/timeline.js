@@ -14,11 +14,26 @@ export function convertToDate(str) {
     return new Date(date.toISOString().split("T")[0] + "T" + time);
 }
 
+// map a few known SSAR/LSAR config IDs to fixed non‑red colours
+const configColorMap = {
+    // avoid highly saturated reds for these problematic ids
+    '254': '#d40808', // green
+    '255': '#d40808'  // blue
+};
+
+function getSegmentColor(cfg, index) {
+    if (cfg && configColorMap[cfg]) {
+        return configColorMap[cfg];
+    }
+    return `hsl(${(index * 45) % 360}, 65%, 55%)`;
+}
+
 export function renderSessionTimeline(container, data, showDetailsCallback) {
     if (!data || data.length === 0) return;
 
     const timelineWrapper = document.createElement("div");
-    timelineWrapper.style.marginTop = "40px";
+    // when used inside a session block, avoid excessive spacing
+    timelineWrapper.style.marginTop = "20px";
 
     const title = document.createElement("h3");
     title.textContent = "Session Coverage Timeline";
@@ -46,32 +61,40 @@ export function renderSessionTimeline(container, data, showDetailsCallback) {
     });
 
     const totalDuration = maxEnd - minStart;
-    const tooltip = document.createElement("div");
-    tooltip.style.position = "absolute";
-    tooltip.style.background = "rgba(0,0,0,0.85)";
-    tooltip.style.color = "white";
-    tooltip.style.padding = "8px 12px";
-    tooltip.style.borderRadius = "6px";
-    tooltip.style.fontSize = "13px";
-    tooltip.style.pointerEvents = "none";
-    tooltip.style.display = "none";
-    tooltip.style.zIndex = "1000";
 
-    document.body.appendChild(tooltip);
+    // reuse a single tooltip element if one already exists to prevent duplicates
+    let tooltip = document.body.querySelector(".timeline-tooltip");
+    if (!tooltip) {
+        tooltip = document.createElement("div");
+        tooltip.className = "timeline-tooltip";
+        tooltip.style.position = "absolute";
+        tooltip.style.background = "rgba(0,0,0,0.85)";
+        tooltip.style.color = "white";
+        tooltip.style.padding = "8px 12px";
+        tooltip.style.borderRadius = "6px";
+        tooltip.style.fontSize = "13px";
+        tooltip.style.pointerEvents = "none";
+        tooltip.style.display = "none";
+        tooltip.style.zIndex = "1000";
+        document.body.appendChild(tooltip);
+    }
 
     parsed.forEach((item, index) => {
         const leftPercent = ((item.start - minStart) / totalDuration) * 100;
         const widthPercent = ((item.end - item.start) / totalDuration) * 100;
+
+        // determine config ID up front so it can be used for color
+        const cfg = item.SSAR_CONFIG_ID || item.LSAR_CONFIG_ID || "-";
+
         const segment = document.createElement("div");
         segment.style.position = "absolute";
         segment.style.left = leftPercent + "%";
         segment.style.width = widthPercent + "%";
         segment.style.height = "100%";
         segment.style.cursor = "pointer";
-        segment.style.background = `hsl(${(index * 45) % 360}, 65%, 55%)`;
+        segment.style.background = getSegmentColor(cfg, index);
 
         // show the config id as a centered label on the segment
-        const cfg = item.SSAR_CONFIG_ID || item.LSAR_CONFIG_ID || "-";
         const label = document.createElement("div");
         label.textContent = cfg;
         label.style.position = "absolute";
@@ -87,10 +110,9 @@ export function renderSessionTimeline(container, data, showDetailsCallback) {
             tooltip.style.display = "block";
             tooltip.style.left = e.pageX + 15 + "px";
             tooltip.style.top = e.pageY + 15 + "px";
+            // only show a compact tooltip (do not expose internal start/end/raw fields)
             tooltip.innerHTML = `
         <strong>${item.REFOBS_ID}</strong><br>
-        Start: ${item.rawStart || "-"}<br>
-        End: ${item.rawEnd || "-"}<br>
         Config ID: ${cfg}
     `;
         });
@@ -116,6 +138,6 @@ export function renderSessionTimeline(container, data, showDetailsCallback) {
 
     timelineWrapper.appendChild(detailsDiv);
 
-    container.innerHTML = "";
+    // append the completed timeline to whatever container was provided
     container.appendChild(timelineWrapper);
 }

@@ -6,11 +6,11 @@ This project is a simple observation viewer dashboard. The frontend web client u
 
 Files have been organized by functionality under `frontend /js/modules/`:
 
-- **search.js** – helpers for building API URLs and fetching JSON payloads
+- **search.js** – helpers for building API URLs and fetching JSON payloads (now supports imaging lookups with full date/time including seconds, plus CMD SSAR start/end range searches)
 - **render.js** – DOM helpers for rendering search results, pagination controls, and session timelines
 - **timeline.js** – utilities to draw session coverage timelines and time conversions
 
-The root component (`observations-app`) lives in `frontend /js/app.js` and imports these modules.  This separation improves maintainability and makes it easier to add features in the future.
+The root component (`observations-app`) lives in `frontend /js/app.js` and imports these modules.  The search box offers multiple filter types (observation ID, session ID, configuration, imaging timestamp and CMD SSAR time range), and results tables default to showing key columns (REFOBS ID, SSAR config, session, CMD start/end) with a "Show More" button for the remainder.
 
 ## Backend structure
 

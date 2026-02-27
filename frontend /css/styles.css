@@ -63,6 +63,18 @@ th {
     margin-top: 15px;
 }
 
+/* visual separation for each session when multiple timelines are shown */
+.session-block {
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    padding: 15px;
+    margin-bottom: 20px;
+    background: #fafafa;
+}
+.session-block h3 {
+    margin-top: 0;
+}
+
 .loading {
     margin-top: 15px;
 }
